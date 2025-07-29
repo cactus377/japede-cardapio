@@ -81,6 +81,41 @@ Para iniciar o servidor em modo de produção:
 npm run start
 ```
 
+### Instalação em VPS
+
+Para instalar em um servidor VPS Linux, você pode usar o script de instalação automatizado:
+
+```bash
+chmod +x ./deploy_to_vps.sh
+sudo ./deploy_to_vps.sh <SUPABASE_ANON_KEY> <SUPABASE_SERVICE_KEY> <POSTGRES_PASSWORD> <JWT_SECRET> <DASHBOARD_USERNAME> <DASHBOARD_PASSWORD> <SECRET_KEY_BASE> <VAULT_ENC_KEY>
+```
+
+Este script irá:
+- Atualizar o sistema
+- Instalar Node.js, Nginx e outras dependências
+- Configurar o firewall
+- Clonar e configurar o projeto
+- Configurar o Nginx para servir a aplicação
+- Configurar o banco de dados
+- Configurar o PM2 para gerenciar a aplicação
+- Criar scripts de utilitários para manutenção
+
+### Configuração do Supabase
+
+Para configurar o banco de dados Supabase, você pode usar o script de configuração:
+
+```bash
+chmod +x ./configure_supabase.sh
+./configure_supabase.sh <SUPABASE_URL> <SUPABASE_SERVICE_KEY> [SCHEMA_FILE] [SEED_FILE]
+```
+
+Este script irá:
+- Testar a conexão com o Supabase
+- Verificar se o banco já está inicializado
+- Executar o schema do banco de dados
+- Executar os dados iniciais (seed data)
+- Verificar se a inicialização foi bem-sucedida
+
 ## Instalação no Windows
 
 Para instalar no Windows, execute:
@@ -94,6 +129,21 @@ Ou diretamente via PowerShell:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install_windows.ps1
 ```
+
+Alternativamente, você pode usar o novo script de configuração interativo:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_windows.ps1
+```
+
+Este script oferece um menu interativo com opções para:
+- Instalação completa (recomendado)
+- Verificar/instalar Node.js e Git
+- Configurar variáveis de ambiente
+- Instalar dependências
+- Inicializar banco de dados
+- Construir aplicação
+- Iniciar aplicação
 
 ## Solução de Problemas
 
