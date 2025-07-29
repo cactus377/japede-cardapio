@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JáPede - Cardápio Online e Gestão</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // API Keys and URLs for a custom backend would typically be configured
+    // in the apiClient.ts or via environment variables for the build process,
+    // not directly in HTML for a custom backend setup.
+    // The frontend will call relative API paths (e.g., /api/...).
+
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              light: '#FFB74D', // orange-300
+              DEFAULT: '#F97316', // orange-600 (was orange-500, 600 for better contrast)
+              dark: '#E65100' // orange-800
+            },
+            secondary: {
+              light: '#64B5F6', // blue-300
+              DEFAULT: '#2196F3', // blue-500
+              dark: '#1565C0'  // blue-700
+            },
+            accent: '#4CAF50', // green-500
+          }
+        }
+      }
+    }; // Explicit semicolon added
+  </script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.49.9",
+    "vite": "https://esm.sh/vite@^6.3.5",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^4.5.1",
+    "@google/genai": "https://esm.sh/@google/genai@^1.3.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-gray-100">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

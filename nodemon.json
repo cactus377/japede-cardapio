@@ -1,0 +1,8 @@
+{
+  "watch": ["server.js", "init_database.js"],
+  "ext": "js,json",
+  "ignore": ["node_modules", "dist"],
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
