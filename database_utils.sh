@@ -5,36 +5,24 @@
 
 set -e
 
-# Incluir funções do setup_database.sh
+# Incluir funções comuns
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/setup_database.sh"
-
-# Carregar variáveis de ambiente
-load_env() {
-    if [[ -f "$SCRIPT_DIR/.env.local" ]]; then
-        source "$SCRIPT_DIR/.env.local"
-    elif [[ -f "$SCRIPT_DIR/.env" ]]; then
-        source "$SCRIPT_DIR/.env"
-    else
-        log_warning "Arquivo .env não encontrado. Usando variáveis do sistema."
-    fi
-}
+source "$SCRIPT_DIR/common_functions.sh"
 
 # Mostrar estatísticas do banco
 show_stats() {
-    load_env
+    load_env "$SCRIPT_DIR"
     
-    if [[ -z "$NEXT_PUBLIC_SUPABASE_URL" ]] || [[ -z "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]]; then
-        log_error "Variáveis de ambiente do Supabase não encontradas"
+    if ! validate_env_vars "NEXT_PUBLIC_SUPABASE_URL" "NEXT_PUBLIC_SUPABASE_ANON_KEY"; then
+        return 1
+    fi
+    
+    if ! test_supabase_connection "$NEXT_PUBLIC_SUPABASE_URL" "$NEXT_PUBLIC_SUPABASE_ANON_KEY"; then
         return 1
     fi
     
     log_info "=== Estatísticas do Banco de Dados ==="
     
-    local supabase_url="$NEXT_PUBLIC_SUPABASE_URL"
-    local supabase_key="$NEXT_PUBLIC_SUPABASE_ANON_KEY"
-    
-    # Buscar contadores de cada tabela
     echo ""
     echo "📊 Contadores das Tabelas:"
     echo "------------------------"
@@ -43,37 +31,18 @@ show_stats() {
     
     for table in "${tables[@]}"; do
         local count
-        count=$(curl -s -H "apikey: $supabase_key" \
-                     -H "Authorization: Bearer $supabase_key" \
-                     -H "Range: 0-0" \
-                     "$supabase_url/rest/v1/$table?select=*" \
-                     2>/dev/null | grep -o 'content-range: [0-9]*-[0-9]*/[0-9]*' | cut -d'/' -f2 || echo "0")
-        
+        count=$(get_table_count "$NEXT_PUBLIC_SUPABASE_URL" "$NEXT_PUBLIC_SUPABASE_ANON_KEY" "$table")
         printf "%-20s: %s registros\n" "$table" "$count"
     done
-    
-    echo ""
-    echo "📈 Status dos Pedidos:"
-    echo "---------------------"
-    
-    local statuses=("Pendente" "Em Preparo" "Pronto para Retirada" "Saiu para Entrega" "Entregue" "Cancelado")
-    
-    for status in "${statuses[@]}"; do
-        local count
-        count=$(curl -s -H "apikey: $supabase_key" \
-                     -H "Authorization: Bearer $supabase_key" \
-                     "$supabase_url/rest/v1/orders?status=eq.$status&select=count" \
-                     2>/dev/null | jq -r '.[0].count // 0' 2>/dev/null || echo "0")
-        
-        printf "%-20s: %s pedidos\n" "$status" "$count"
-    done
-    
-    echo ""
 }
 
 # Limpar dados de teste
 clear_test_data() {
-    load_env
+    load_env "$SCRIPT_DIR"
+    
+    if ! validate_env_vars "NEXT_PUBLIC_SUPABASE_URL" "SUPABASE_SERVICE_ROLE_KEY"; then
+        return 1
+    fi
     
     log_warning "⚠️  Esta operação irá remover TODOS os pedidos e dados de teste!"
     read -p "Tem certeza? Digite 'CONFIRMAR' para continuar: " confirm
@@ -83,37 +52,18 @@ clear_test_data() {
         return 0
     fi
     
-    local supabase_url="$NEXT_PUBLIC_SUPABASE_URL"
-    local service_key="$SUPABASE_SERVICE_ROLE_KEY"
-    
-    if [[ -z "$service_key" ]]; then
-        log_error "Chave de serviço do Supabase necessária para esta operação"
-        return 1
-    fi
-    
     log_info "Limpando dados de teste..."
     
     # Deletar pedidos e itens relacionados
     curl -s -X DELETE \
-         -H "apikey: $service_key" \
-         -H "Authorization: Bearer $service_key" \
-         "$supabase_url/rest/v1/order_items" >/dev/null
+         -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+         -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+         "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/order_items" >/dev/null
     
     curl -s -X DELETE \
-         -H "apikey: $service_key" \
-         -H "Authorization: Bearer $service_key" \
-         "$supabase_url/rest/v1/orders" >/dev/null
-    
-    # Deletar sessões de caixa
-    curl -s -X DELETE \
-         -H "apikey: $service_key" \
-         -H "Authorization: Bearer $service_key" \
-         "$supabase_url/rest/v1/cash_adjustments" >/dev/null
-    
-    curl -s -X DELETE \
-         -H "apikey: $service_key" \
-         -H "Authorization: Bearer $service_key" \
-         "$supabase_url/rest/v1/cash_register_sessions" >/dev/null
+         -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+         -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+         "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/orders" >/dev/null
     
     log_success "Dados de teste removidos"
 }
@@ -122,20 +72,15 @@ clear_test_data() {
 reset_demo_data() {
     log_info "Resetando dados para demonstração..."
     
-    # Primeiro limpar dados existentes
     clear_test_data
     
-    # Depois recriar dados iniciais
-    load_env
+    load_env "$SCRIPT_DIR"
     
-    local supabase_url="$NEXT_PUBLIC_SUPABASE_URL"
-    local service_key="$SUPABASE_SERVICE_ROLE_KEY"
-    local db_url="$DATABASE_URL"
-    
-    if [[ -n "$db_url" ]]; then
-        execute_sql_via_psql "$db_url" "$SCRIPT_DIR/supabase_seed_data.sql"
+    if [[ -n "$DATABASE_URL" ]]; then
+        execute_sql_via_psql "$DATABASE_URL" "$SCRIPT_DIR/supabase_seed_data.sql" "dados de demonstração"
     else
-        execute_sql_via_api "$supabase_url" "$service_key" "$SCRIPT_DIR/supabase_seed_data.sql"
+        local sql_content=$(cat "$SCRIPT_DIR/supabase_seed_data.sql")
+        execute_sql_via_api "$NEXT_PUBLIC_SUPABASE_URL" "$SUPABASE_SERVICE_ROLE_KEY" "$sql_content" "dados de demonstração"
     fi
     
     log_success "Dados de demonstração resetados"
@@ -143,86 +88,58 @@ reset_demo_data() {
 
 # Verificar integridade do banco
 check_integrity() {
-    load_env
+    load_env "$SCRIPT_DIR"
+    
+    if ! validate_env_vars "NEXT_PUBLIC_SUPABASE_URL" "NEXT_PUBLIC_SUPABASE_ANON_KEY"; then
+        return 1
+    fi
     
     log_info "=== Verificação de Integridade ==="
     
-    local supabase_url="$NEXT_PUBLIC_SUPABASE_URL"
-    local supabase_key="$NEXT_PUBLIC_SUPABASE_ANON_KEY"
-    
-    # Verificar se todas as tabelas essenciais existem
-    local essential_tables=("categories" "menu_items" "tables" "orders")
-    local missing_tables=()
-    
-    for table in "${essential_tables[@]}"; do
-        local response
-        response=$(curl -s -H "apikey: $supabase_key" \
-                        -H "Authorization: Bearer $supabase_key" \
-                        "$supabase_url/rest/v1/$table?limit=1" 2>/dev/null)
-        
-        if [[ "$response" == *"error"* ]] || [[ "$response" == *"does not exist"* ]]; then
-            missing_tables+=("$table")
-        fi
-    done
-    
-    if [[ ${#missing_tables[@]} -eq 0 ]]; then
-        log_success "✅ Todas as tabelas essenciais estão presentes"
+    # Usar função comum para verificar inicialização
+    if check_database_initialized "$NEXT_PUBLIC_SUPABASE_URL" "$NEXT_PUBLIC_SUPABASE_ANON_KEY"; then
+        log_success "✅ Banco de dados está inicializado"
     else
-        log_error "❌ Tabelas faltando: ${missing_tables[*]}"
+        log_error "❌ Banco de dados não está inicializado"
         log_info "Execute: ./setup_database.sh init para criar as tabelas"
         return 1
     fi
     
-    # Verificar se há categorias
-    local cat_count
-    cat_count=$(curl -s -H "apikey: $supabase_key" \
-                     -H "Authorization: Bearer $supabase_key" \
-                     "$supabase_url/rest/v1/categories?select=count" \
-                     2>/dev/null | jq length 2>/dev/null || echo "0")
+    # Verificar contadores das tabelas principais
+    local essential_tables=("categories" "menu_items" "tables")
     
-    if [[ "$cat_count" -gt 0 ]]; then
-        log_success "✅ Categorias encontradas: $cat_count"
-    else
-        log_warning "⚠️  Nenhuma categoria encontrada. Execute: ./setup_database.sh init"
-    fi
-    
-    # Verificar se há itens do menu
-    local menu_count
-    menu_count=$(curl -s -H "apikey: $supabase_key" \
-                      -H "Authorization: Bearer $supabase_key" \
-                      "$supabase_url/rest/v1/menu_items?select=count" \
-                      2>/dev/null | jq length 2>/dev/null || echo "0")
-    
-    if [[ "$menu_count" -gt 0 ]]; then
-        log_success "✅ Itens do menu encontrados: $menu_count"
-    else
-        log_warning "⚠️  Nenhum item do menu encontrado"
-    fi
+    for table in "${essential_tables[@]}"; do
+        local count
+        count=$(get_table_count "$NEXT_PUBLIC_SUPABASE_URL" "$NEXT_PUBLIC_SUPABASE_ANON_KEY" "$table")
+        
+        if [[ "$count" -gt 0 ]]; then
+            log_success "✅ $table: $count registros"
+        else
+            log_warning "⚠️  $table: nenhum registro encontrado"
+        fi
+    done
     
     log_success "Verificação de integridade concluída"
 }
 
 # Exportar dados de configuração
 export_config() {
-    load_env
+    load_env "$SCRIPT_DIR"
+    
+    if ! validate_env_vars "NEXT_PUBLIC_SUPABASE_URL" "NEXT_PUBLIC_SUPABASE_ANON_KEY"; then
+        return 1
+    fi
     
     local export_file="${1:-japede_config_$(date +%Y%m%d_%H%M%S).json}"
     
     log_info "Exportando configurações para: $export_file"
     
-    local supabase_url="$NEXT_PUBLIC_SUPABASE_URL"
-    local supabase_key="$NEXT_PUBLIC_SUPABASE_ANON_KEY"
-    
-    # Exportar categorias e itens do menu
     {
         echo "{"
-        echo "  \"export_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
-        echo "  \"categories\": $(curl -s -H "apikey: $supabase_key" -H "Authorization: Bearer $supabase_key" "$supabase_url/rest/v1/categories"),"
-        echo "  \"menu_items\": $(curl -s -H "apikey: $supabase_key" -H "Authorization: Bearer $supabase_key" "$supabase_url/rest/v1/menu_items"),"
-        echo "  \"pizza_sizes\": $(curl -s -H "apikey: $supabase_key" -H "Authorization: Bearer $supabase_key" "$supabase_url/rest/v1/pizza_sizes"),"
-        echo "  \"pizza_crusts\": $(curl -s -H "apikey: $supabase_key" -H "Authorization: Bearer $supabase_key" "$supabase_url/rest/v1/pizza_crusts"),"
-        echo "  \"tables\": $(curl -s -H "apikey: $supabase_key" -H "Authorization: Bearer $supabase_key" "$supabase_url/rest/v1/tables"),"
-        echo "  \"system_settings\": $(curl -s -H "apikey: $supabase_key" -H "Authorization: Bearer $supabase_key" "$supabase_url/rest/v1/system_settings")"
+        echo "  \"categories\": $(curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" -H "Authorization: Bearer $NEXT_PUBLIC_SUPABASE_ANON_KEY" "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/categories"),"
+        echo "  \"menu_items\": $(curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" -H "Authorization: Bearer $NEXT_PUBLIC_SUPABASE_ANON_KEY" "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/menu_items"),"
+        echo "  \"tables\": $(curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" -H "Authorization: Bearer $NEXT_PUBLIC_SUPABASE_ANON_KEY" "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/tables"),"
+        echo "  \"system_settings\": $(curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" -H "Authorization: Bearer $NEXT_PUBLIC_SUPABASE_ANON_KEY" "$NEXT_PUBLIC_SUPABASE_URL/rest/v1/system_settings")"
         echo "}"
     } > "$export_file"
     
@@ -248,7 +165,6 @@ show_menu() {
 # Função principal
 main() {
     if [[ $# -gt 0 ]]; then
-        # Modo de linha de comando
         case "$1" in
             "stats") show_stats ;;
             "check") check_integrity ;;
@@ -256,12 +172,12 @@ main() {
             "reset") reset_demo_data ;;
             "export") export_config "$2" ;;
             "reinit") 
-                load_env
-                ./setup_database.sh force-init "$NEXT_PUBLIC_SUPABASE_URL" "$NEXT_PUBLIC_SUPABASE_ANON_KEY" "$SUPABASE_SERVICE_ROLE_KEY" "$DATABASE_URL"
+                load_env "$SCRIPT_DIR"
+                "$SCRIPT_DIR/setup_database.sh" force-init
                 ;;
             "backup")
-                load_env
-                ./setup_database.sh backup "$DATABASE_URL"
+                load_env "$SCRIPT_DIR"
+                "$SCRIPT_DIR/setup_database.sh" backup
                 ;;
             *) 
                 echo "Uso: $0 {stats|check|clear|reset|export|reinit|backup}"
@@ -269,7 +185,6 @@ main() {
                 ;;
         esac
     else
-        # Modo interativo
         while true; do
             show_menu
             read -p "Escolha uma opção (1-8): " choice
@@ -284,12 +199,10 @@ main() {
                     export_config "$filename"
                     ;;
                 6) 
-                    load_env
-                    ./setup_database.sh force-init "$NEXT_PUBLIC_SUPABASE_URL" "$NEXT_PUBLIC_SUPABASE_ANON_KEY" "$SUPABASE_SERVICE_ROLE_KEY" "$DATABASE_URL"
+                    "$SCRIPT_DIR/setup_database.sh" force-init
                     ;;
                 7)
-                    load_env
-                    ./setup_database.sh backup "$DATABASE_URL"
+                    "$SCRIPT_DIR/setup_database.sh" backup
                     ;;
                 8) 
                     log_info "Saindo..."
@@ -306,7 +219,8 @@ main() {
     fi
 }
 
-# Executar se chamado diretamente
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi
+
+
