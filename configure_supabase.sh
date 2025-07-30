@@ -5,34 +5,9 @@
 
 set -e
 
-# Cores para output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-NC='\033[0m' # No Color
-
-# Funções de log
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-log_step() {
-    echo -e "\n${PURPLE}[STEP]${NC} $1"
-}
+# Incluir funções comuns
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common_functions.sh"
 
 # Verificar argumentos
 if [ "$#" -lt 2 ]; then
@@ -57,78 +32,6 @@ if [ ! -f "$SEED_FILE" ]; then
     log_warning "Apenas o schema será aplicado."
 fi
 
-# Testar conexão com o Supabase
-test_connection() {
-    log_step "Testando conexão com o Supabase..."
-    
-    # Testar conexão usando curl
-    local response=$(curl -s -o /dev/null -w "%{http_code}" \
-        -H "apikey: $SUPABASE_SERVICE_KEY" \
-        -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
-        "$SUPABASE_URL/rest/v1/")
-    
-    if [ "$response" = "200" ]; then
-        log_success "Conexão com o Supabase estabelecida com sucesso"
-        return 0
-    else
-        log_error "Falha ao conectar com o Supabase. Código de resposta: $response"
-        log_error "Verifique se a URL e a chave de serviço estão corretas."
-        return 1
-    fi
-}
-
-# Executar SQL via API REST do Supabase
-execute_sql_via_api() {
-    local sql_file="$1"
-    local description="$2"
-    
-    log_step "Executando $description via API REST..."
-    
-    # Ler conteúdo do arquivo SQL
-    local sql_content=$(cat "$sql_file" | tr '\n' ' ' | sed 's/"/\\"/g')
-    
-    # Executar SQL via API REST
-    local response=$(curl -s -X POST \
-        -H "apikey: $SUPABASE_SERVICE_KEY" \
-        -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
-        -H "Content-Type: application/json" \
-        "$SUPABASE_URL/rest/v1/rpc/exec_sql" \
-        -d "{\"sql\":\"$sql_content\"}")
-    
-    # Verificar resposta
-    if [[ "$response" == *"error"* ]]; then
-        log_error "Erro ao executar SQL: $response"
-        return 1
-    else
-        log_success "$description executado com sucesso"
-        return 0
-    fi
-}
-
-# Verificar se o banco já está inicializado
-check_database_initialized() {
-    log_step "Verificando se o banco já está inicializado..."
-    
-    # Tentar consultar a tabela categories
-    local response=$(curl -s \
-        -H "apikey: $SUPABASE_SERVICE_KEY" \
-        -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
-        "$SUPABASE_URL/rest/v1/categories?select=id&limit=1")
-    
-    # Verificar se a resposta é um array (mesmo que vazio)
-    if [[ "$response" == "[]" || "$response" == *"\"id\""* ]]; then
-        log_warning "Banco de dados já parece estar inicializado"
-        log_warning "A tabela 'categories' já existe"
-        return 0
-    elif [[ "$response" == *"error"* && "$response" == *"does not exist"* ]]; then
-        log_info "Banco de dados não inicializado"
-        return 1
-    else
-        log_error "Erro ao verificar banco de dados: $response"
-        return 2
-    fi
-}
-
 # Função principal
 main() {
     echo -e "${PURPLE}"
@@ -137,13 +40,19 @@ main() {
     echo "==================================="
     echo -e "${NC}"
     
+    # Verificar dependências
+    if ! check_dependencies curl jq; then
+        log_info "Instalando dependências necessárias..."
+        install_dependencies curl jq
+    fi
+    
     # Testar conexão
-    if ! test_connection; then
+    if ! test_supabase_connection "$SUPABASE_URL" "$SUPABASE_SERVICE_KEY"; then
         exit 1
     fi
     
     # Verificar se o banco já está inicializado
-    check_database_initialized
+    check_database_initialized "$SUPABASE_URL" "$SUPABASE_SERVICE_KEY"
     local db_status=$?
     
     if [ "$db_status" -eq 0 ]; then
@@ -160,21 +69,23 @@ main() {
     fi
     
     # Executar schema
-    if ! execute_sql_via_api "$SCHEMA_FILE" "Schema do banco de dados"; then
+    local sql_content=$(cat "$SCHEMA_FILE")
+    if ! execute_sql_via_api "$SUPABASE_URL" "$SUPABASE_SERVICE_KEY" "$sql_content" "Schema do banco de dados"; then
         log_error "Falha ao aplicar o schema do banco de dados."
         exit 1
     fi
     
     # Executar seed data se o arquivo existir
     if [ -f "$SEED_FILE" ]; then
-        if ! execute_sql_via_api "$SEED_FILE" "Dados iniciais"; then
+        local seed_content=$(cat "$SEED_FILE")
+        if ! execute_sql_via_api "$SUPABASE_URL" "$SUPABASE_SERVICE_KEY" "$seed_content" "Dados iniciais"; then
             log_warning "Falha ao aplicar os dados iniciais, mas o schema foi aplicado com sucesso."
             log_warning "Você pode tentar aplicar os dados iniciais manualmente."
         fi
     fi
     
     # Verificar se o banco foi inicializado corretamente
-    if check_database_initialized; then
+    if check_database_initialized "$SUPABASE_URL" "$SUPABASE_SERVICE_KEY"; then
         echo
         echo -e "${GREEN}🎉 ==================================="
         echo "   Banco de Dados Configurado com Sucesso!"
@@ -190,11 +101,8 @@ main() {
         local tables=("categories" "menu_items" "tables" "system_settings")
         
         for table in "${tables[@]}"; do
-            local count=$(curl -s \
-                -H "apikey: $SUPABASE_SERVICE_KEY" \
-                -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
-                "$SUPABASE_URL/rest/v1/$table?select=id" | grep -o "id" | wc -l)
-            
+            local count
+            count=$(get_table_count "$SUPABASE_URL" "$SUPABASE_SERVICE_KEY" "$table")
             log_info "Tabela $table: $count registros"
         done
         

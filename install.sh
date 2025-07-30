@@ -281,7 +281,7 @@ setup_pm2() {
     
     # Criar configuração PM2
     cat > ecosystem.config.js << EOF
-module.exports = {
+export default {
   apps: [{
     name: 'japede-cardapio',
     script: 'serve',

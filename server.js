@@ -1,9 +1,14 @@
-const express = require('express');
-const cors = require('cors');
-const { GoogleGenerativeAI } = require('@google/genai');
-const dotenv = require('dotenv');
-const path = require('path');
-const { createClient } = require('@supabase/supabase-js');
+import express from 'express';
+import cors from 'cors';
+import { GoogleGenerativeAI } from '@google/genai';
+import dotenv from 'dotenv';
+import path from 'path';
+import { createClient } from '@supabase/supabase-js';
+import { fileURLToPath } from 'url';
+
+// Para obter o __dirname em módulos ES
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Carrega as variáveis de ambiente
 dotenv.config({ path: '.env.local' });
